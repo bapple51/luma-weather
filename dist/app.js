@@ -56,7 +56,7 @@
   }
   function eventTime(date, start, absent='Not today') {
     if(!validDate(date)) return absent;
-    return formatTime(date)+(dateKey(date)!==dateKey(start)?' +1d':'');
+    return formatTime(date)+(dateKey(date)!==dateKey(start)?(+date<+start?' −1d':' +1d'):'');
   }
   function renderSun() {
     const start = selectedDay();
@@ -139,10 +139,10 @@
     const now=Date.now()/1000;
     let first=hourly.time.findIndex(t=>t>=now-3600);if(first<0)first=0;
     $('hourly').innerHTML=hourly.time.slice(first,first+24).map((t,n)=>{
-      const i=first+n, w=weather(hourly.weather_code[i],!!hourly.is_day[i]);
+      const i=first+n, w=n===0?condition:weather(hourly.weather_code[i],!!hourly.is_day[i]);
       const hour=new Intl.DateTimeFormat('en-US',{timeZone:state.zone,hour:'numeric'}).format(new Date(t*1000));
       const probability=hourly.precipitation_probability[i];
-      return `<div class="hour"><span class="hour-time">${n===0?'Now':hour}</span><span class="hour-icon" role="img" aria-label="${w.label}">${icon(w.icon)}</span><strong class="hour-temp">${temp(hourly.temperature_2m[i])}</strong><span class="hour-rain" aria-label="Precipitation probability">${finite(probability)?probability+'%':'—'}</span></div>`;
+      return `<div class="hour"><span class="hour-time">${n===0?'Now':hour}</span><span class="hour-icon" role="img" aria-label="${w.label}">${icon(w.icon)}</span><strong class="hour-temp">${temp(n===0?current.temperature_2m:hourly.temperature_2m[i])}</strong><span class="hour-rain" aria-label="Precipitation probability">${finite(probability)?probability+'%':'—'}</span></div>`;
     }).join('');
     const lows=daily.temperature_2m_min.filter(finite),highs=daily.temperature_2m_max.filter(finite);
     const min=Math.min(...lows),max=Math.max(...highs),span=Math.max(1,max-min);
