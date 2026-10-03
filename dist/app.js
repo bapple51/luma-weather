@@ -26,6 +26,10 @@
     gauge:'<path d="M3 18a10 10 0 1 1 18 0M12 13l5-6M5 15l2-1M6 7l2 2M12 3v3M19 15l-2-1"/><circle cx="12" cy="13" r="1.5"/>',
     'chevron-left':'<path d="m14 6-6 6 6 6"/>',
     'chevron-right':'<path d="m10 6 6 6-6 6"/>',
+    settings:'<path d="m10 2-.7 3-2.5 1.4L4 5.5l-2 3 2.1 2v3L2 15.5l2 3 2.8-.9L9.3 19l.7 3h4l.7-3 2.5-1.4 2.8.9 2-3-2.1-2v-3l2.1-2-2-3-2.8.9L14.7 5 14 2Z"/><circle cx="12" cy="12" r="3"/>',
+    refresh:'<path d="M20 9a8 8 0 1 0 0 6M20 3v6h-6"/>',
+    play:'<path d="m8 4 12 8-12 8Z"/>',
+    pause:'<path d="M8 4v16M16 4v16"/>',
     drop:'<path d="M12 2S4 11 4 15a8 8 0 0 0 16 0c0-4-8-13-8-13Z"/><path d="M8 15a4 4 0 0 0 4 4"/>'
   };
   const icon = name => `<svg viewBox="0 0 24 24" aria-hidden="true">${icons[name] || icons.cloud}</svg>`;
@@ -36,20 +40,20 @@
   const clamp = (value,min,max) => Math.min(max,Math.max(min,value));
   const store = (key,value) => {try{localStorage.setItem('luma-'+key,JSON.stringify(value));}catch{}};
   const restore = (key,fallback) => {try{return JSON.parse(localStorage.getItem('luma-'+key))??fallback;}catch{return fallback;}};
-  const state={data:null,lat:37.7749,lon:-122.4194,name:'San Francisco',unit:restore('unit','c')==='f'?'f':'c',day:0,zone:'UTC',controller:null,busy:false,fallback:false,sunMinute:null,metric:'temperature',weatherIndex:0,chart:null,saved:restore('places',[])};
+  const state={data:null,lat:37.7749,lon:-122.4194,name:'San Francisco',unit:restore('unit','c')==='f'?'f':'c',day:0,zone:'UTC',controller:null,busy:false,fallback:false,sunMinute:null,metric:'temperature',weatherIndex:0,chart:null,showMoon:restore('moon',true)!==false,time24:restore('clock',12)===24,preview:false,playing:false,saved:restore('places',[])};
   if(!Array.isArray(state.saved))state.saved=[];
   state.saved=state.saved.filter(p=>p&&finite(p.lat)&&finite(p.lon)&&Math.abs(p.lat)<=90&&Math.abs(p.lon)<=180&&typeof p.name==='string').slice(0,12);
   const temp = value => finite(value)?`${Math.round(state.unit==='f'?value*9/5+32:value)}°`:'—';
   const speed = value => finite(value)?Math.round(state.unit==='f'?value/1.609344:value):'—';
   const speedUnit = () => state.unit==='f'?'mph':'km/h';
   const rainfall = value => finite(value)?`${state.unit==='f'?(value/25.4).toFixed(2):value.toFixed(1)} ${state.unit==='f'?'in':'mm'}`:'—';
-  const formatTime = date => validDate(date)?new Intl.DateTimeFormat('en-US',{timeZone:state.zone,hour:'numeric',minute:'2-digit'}).format(date):'—';
+  const formatTime = date => validDate(date)?new Intl.DateTimeFormat('en-US',{timeZone:state.zone,hour:state.time24?'2-digit':'numeric',minute:'2-digit',hourCycle:state.time24?'h23':'h12'}).format(date):'—';
   const dateKey = date => new Intl.DateTimeFormat('en-CA',{timeZone:state.zone,year:'numeric',month:'2-digit',day:'2-digit'}).format(date);
   const dayLabel = date => new Intl.DateTimeFormat('en-US',{timeZone:state.zone,weekday:'short',month:'short',day:'numeric'}).format(date);
   const duration = ms => {const m=Math.round(Math.max(0,ms)/60000);return `${Math.floor(m/60)}h ${m%60}m`;};
   const coordinates = (lat,lon) => `${Math.abs(lat).toFixed(4)}° ${lat<0?'S':'N'} · ${Math.abs(lon).toFixed(4)}° ${lon<0?'W':'E'}`;
   const bearingName = degrees => ['N','NE','E','SE','S','SW','W','NW'][Math.round(degrees/45)%8];
-  const phase = altitude => altitude>0?'Daylight':altitude> -6?'Civil twilight':altitude> -12?'Nautical twilight':altitude> -18?'Astronomical twilight':'Astronomical night';
+  const phase = altitude => altitude>=-.833?'Daylight':altitude> -6?'Civil twilight':altitude> -12?'Nautical twilight':altitude> -18?'Astronomical twilight':'Astronomical night';
   function weather(code,day=true){
     if(code===0)return {label:day?'Clear sky':'Clear night',icon:day?'sun':'moon'};
     if(code===1||code===2)return {label:code===1?'Mostly clear':'Partly cloudy',icon:'partly'};
@@ -77,7 +81,7 @@
   function svgElement(tag,attributes){const e=document.createElementNS('http://www.w3.org/2000/svg',tag);Object.entries(attributes).forEach(([key,value])=>e.setAttribute(key,value));return e;}
   function axisTicks(id,start,end){
     const el=$(id);el.replaceChildren();
-    for(let i=0;i<=4;i++){const span=document.createElement('span');span.textContent=new Intl.DateTimeFormat('en-US',{timeZone:state.zone,hour:'numeric'}).format(new Date(+start+(+end-+start)*i/4));el.append(span);}
+    for(let i=0;i<=4;i++){const span=document.createElement('span');span.textContent=new Intl.DateTimeFormat('en-US',{timeZone:state.zone,hour:state.time24?'2-digit':'numeric',hourCycle:state.time24?'h23':'h12'}).format(new Date(+start+(+end-+start)*i/4));el.append(span);}
   }
   function renderSun(){
     const {start,end}=bounds(),times=sunForDay(start),tomorrow=sunForDay(end);
@@ -87,26 +91,27 @@
     text('sunrise',eventTime(times.sunrise,start,'No sunrise'));text('sunset',eventTime(times.sunset,start,'No sunset'));text('solar-noon',formatTime(times.solarNoon));
     ['night','dark-time','astronomical'].forEach(id=>text(id,darkness));
     text('civil',eventTime(times.dusk,start,'No transition'));text('nautical',eventTime(times.nauticalDusk,start,'No transition'));
+    text('morning-golden',validDate(times.sunrise)&&validDate(times.goldenHourEnd)?`${formatTime(times.sunrise)} – ${formatTime(times.goldenHourEnd)}`:'No golden hour on this day');
     text('golden-hour',validDate(times.goldenHour)&&validDate(times.sunset)?`${formatTime(times.goldenHour)} – ${formatTime(times.sunset)}`:'No golden hour on this day');
     const daylight=validDate(times.sunrise)&&validDate(times.sunset)?+times.sunset-+times.sunrise:noon< -.833?0:+end-+start;
     text('daylight',duration(daylight));
     text('dark-duration',validDate(times.night)&&validDate(tomorrow.nightEnd)?`${duration(+tomorrow.nightEnd-+times.night)} of darkness · first light ${formatTime(tomorrow.nightEnd)}`:noon< -18?'Astronomical darkness lasts all day.':nadir> -18?'Twilight continues through the night.':'No full-night interval on this date.');
     text('sun-date-label',`${dayLabel(start)} · ${state.zone.replaceAll('_',' ')}`);
-    $('day-prev').disabled=state.day===0;$('day-next').disabled=!state.data||state.day>=6;
+    $('day-prev').disabled=state.day===0;$('day-next').disabled=!state.data||state.day>=Math.min(6,state.data.daily.time.length-1);
     const samples=[];
     for(let i=0;i<=288;i++){
       const date=new Date(+start+(+end-+start)*i/288);
       samples.push({x:36+828*i/288,sun:SunCalc.getPosition(date,state.lat,state.lon).altitude*180/Math.PI,moon:SunCalc.getMoonPosition(date,state.lat,state.lon).altitude*180/Math.PI});
     }
-    const min=Math.max(-90,Math.min(-25,...samples.map(p=>p.sun),...samples.map(p=>p.moon))-8);
-    const max=Math.min(90,Math.max(20,...samples.map(p=>p.sun),...samples.map(p=>p.moon))+8);
+    const min=Math.max(-90,Math.min(-25,...samples.map(p=>p.sun),...(state.showMoon?samples.map(p=>p.moon):[]))-8);
+    const max=Math.min(90,Math.max(20,...samples.map(p=>p.sun),...(state.showMoon?samples.map(p=>p.moon):[]))+8);
     const y=altitude=>16+(max-altitude)/(max-min)*252;
     state.chart={start,end,times,y};
     const path=key=>samples.map((p,i)=>`${i?'L':'M'}${p.x.toFixed(2)},${y(p[key]).toFixed(2)}`).join(' ');
     $('arc-path').setAttribute('d',path('sun'));$('moon-path').setAttribute('d',path('moon'));
     $('arc-fill').setAttribute('d',path('sun')+' L864,268 L36,268 Z');
     const bands=$('sky-bands');bands.replaceChildren();
-    const bandColor=alt=>alt>0?'#e8c48b':alt> -6?'#e6b398':alt> -12?'#b2a2c5':alt> -18?'#7b85b4':'#2e3e61';
+    const bandColor=alt=>alt>=-.833?'#e8c48b':alt> -6?'#e6b398':alt> -12?'#b2a2c5':alt> -18?'#7b85b4':'#2e3e61';
     for(let i=0;i<288;i++)bands.append(svgElement('rect',{x:samples[i].x,y:16,width:828/288+.3,height:252,fill:bandColor(samples[i].sun),opacity:samples[i].sun>0?.055:.09}));
     const grid=$('sun-grid');grid.replaceChildren();
     const ticks=[...new Set([Math.floor(max/30)*30,0,-18,Math.ceil(min/30)*30])].filter(v=>v>=min&&v<=max).sort((a,b)=>b-a);
@@ -117,7 +122,7 @@
     for(let i=0;i<=4;i++)grid.append(svgElement('line',{x1:36+828*i/4,x2:36+828*i/4,y1:16,y2:268}));
     axisTicks('sun-axis',start,end);
     document.querySelectorAll('[data-sun-event]').forEach(button=>{const event=times[button.dataset.sunEvent];button.disabled=!validDate(event)||+event<+start||+event>+end;});
-    renderMoon();scrubSun(state.sunMinute);
+    applyMoonVisibility();renderLightTimeline(samples);renderMoon();scrubSun(state.sunMinute);renderNightOutlook();
   }
   function scrubSun(minute){
     if(!state.chart)return;
@@ -138,6 +143,7 @@
     ['x1','x2'].forEach(key=>$('sun-crosshair').setAttribute(key,x));$('sun-crosshair').setAttribute('y1',16);$('sun-crosshair').setAttribute('y2',268);
     $('sun-scrubber').value=Math.round(minute);$('sun-scrubber').setAttribute('aria-valuetext',`${formatTime(date)}, ${phase(altitude)}, sun altitude ${altitude.toFixed(1)} degrees`);
     $('sun-live').textContent=live&&state.day===0?'Live':'Reset';
+    if(state.preview)applySkyPreview(date);
     $('sun-arc').setAttribute('aria-label',`Sun and moon altitude on ${dayLabel(start)}. Exploring ${formatTime(date)}: sun altitude ${altitude.toFixed(1)} degrees, ${phase(altitude)}.`);
   }
   function moonEvents(start,end){
@@ -171,7 +177,7 @@
     const altitude=SunCalc.getPosition(now,state.lat,state.lon).altitude*180/Math.PI;
     text('phase',phase(altitude));
     const code=state.data?.current.weather_code;
-    document.body.dataset.sky=altitude< -6?'night':altitude<6?'twilight':[51,53,55,56,57,61,63,65,66,67,80,81,82,95,96,99].includes(code)?'rain':code===3||code===45||code===48?'cloud':'day';
+    if(!state.preview)document.body.dataset.sky=altitude< -6?'night':altitude<6?'twilight':[51,53,55,56,57,61,63,65,66,67,80,81,82,95,96,99].includes(code)?'rain':code===3||code===45||code===48?'cloud':'day';
     const today=state.data?new Date(state.data.daily.time[0]*1000):bounds().start,events=[];
     for(let i=-1;i<8;i++){
       const sun=sunForDay(new Date(+today+i*86400000));
@@ -194,6 +200,7 @@
     const visibility=h.visibility?.[index];text('visibility',finite(visibility)?`${Math.round(state.unit==='f'?visibility/1609.344:visibility/1000)} ${state.unit==='f'?'mi':'km'}`:'—');text('visibility-note',`${finite(c.cloud_cover)?Math.round(c.cloud_cover)+'%':'—'} cloud cover`);
     $('pressure').innerHTML=finite(c.pressure_msl)?`${Math.round(c.pressure_msl)} <span class="small-unit">hPa</span>`:'—';
     text('precipitation',rainfall(d.precipitation_sum?.[0]));text('precipitation-note',`${finite(d.precipitation_probability_max?.[0])?Math.round(d.precipitation_probability_max[0])+'% chance':'Today’s total'}`);
+    renderSummary();
     text('updated',`Updated ${formatTime(new Date(c.time*1000))}`);
   }
   function hourIndices(){
@@ -204,15 +211,15 @@
   }
   function metricValue(i){
     const h=state.data.hourly;
-    const value=state.metric==='temperature'?h.temperature_2m[i]:state.metric==='rain'?h.precipitation_probability[i]:h.wind_speed_10m[i];
+    const value=state.metric==='temperature'?h.temperature_2m[i]:state.metric==='rain'?h.precipitation_probability[i]:state.metric==='cloud'?h.cloud_cover[i]:h.wind_speed_10m[i];
     return !finite(value)?null:state.metric==='temperature'&&state.unit==='f'?value*9/5+32:state.metric==='wind'&&state.unit==='f'?value/1.609344:value;
   }
-  const metricLabel = value => !finite(value)?'—':`${Math.round(value)}${state.metric==='temperature'?'°':state.metric==='rain'?'%':' '+speedUnit()}`;
+  const metricLabel = value => !finite(value)?'—':`${Math.round(value)}${state.metric==='temperature'?'°':['rain','cloud'].includes(state.metric)?'%':' '+speedUnit()}`;
   function renderWeatherChart(){
     if(!state.data)return;
     const indices=hourIndices(),values=indices.map(metricValue),available=values.filter(finite);
-    const low=state.metric==='rain'||!available.length?0:Math.floor((Math.min(...available)-2)/5)*5;
-    const high=state.metric==='rain'?100:!available.length?10:Math.max(low+5,Math.ceil((Math.max(...available)+2)/5)*5);
+    const low=['rain','cloud'].includes(state.metric)||!available.length?0:Math.floor((Math.min(...available)-2)/5)*5;
+    const high=['rain','cloud'].includes(state.metric)?100:!available.length?10:Math.max(low+5,Math.ceil((Math.max(...available)+2)/5)*5);
     const x=i=>36+828*i/Math.max(1,indices.length-1),y=value=>16+(high-value)/(high-low)*172;
     state.weatherChart={indices,x,y};
     const segments=[];let segment=[];
@@ -221,7 +228,7 @@
     const area=segments.map(s=>s.map((p,i)=>`${i?'L':'M'}${p[0].toFixed(2)},${p[1].toFixed(2)}`).join(' ')+` L${s.at(-1)[0]},188 L${s[0][0]},188 Z`).join(' ');
     $('weather-line').setAttribute('d',line);$('weather-area').setAttribute('d',area);
     const grid=$('weather-grid');grid.replaceChildren();
-    for(let i=0;i<=3;i++){const value=low+(high-low)*i/3;grid.append(svgElement('line',{x1:36,x2:864,y1:y(value),y2:y(value)}));const label=svgElement('text',{x:2,y:y(value)+4});label.textContent=Math.round(value)+(state.metric==='rain'?'%':state.metric==='temperature'?'°':'');grid.append(label);}
+    for(let i=0;i<=3;i++){const value=low+(high-low)*i/3;grid.append(svgElement('line',{x1:36,x2:864,y1:y(value),y2:y(value)}));const label=svgElement('text',{x:2,y:y(value)+4});label.textContent=Math.round(value)+(['rain','cloud'].includes(state.metric)?'%':state.metric==='temperature'?'°':'');grid.append(label);}
     if(indices.length)axisTicks('weather-axis',new Date(state.data.hourly.time[indices[0]]*1000),new Date(state.data.hourly.time[indices.at(-1)]*1000));
     $('weather-scrubber').max=Math.max(0,indices.length-1);state.weatherIndex=clamp(state.weatherIndex,0,Math.max(0,indices.length-1));
     text('forecast-date-label',state.day===0?'Next 24 hours · select an hour for details.':`${dayLabel(bounds().start)} · hourly forecast`);
@@ -232,7 +239,8 @@
     const {indices,x,y}=state.weatherChart;index=clamp(Math.round(index),0,indices.length-1);state.weatherIndex=index;
     const i=indices[index],value=metricValue(i),h=state.data.hourly,w=weather(h.weather_code[i],!!h.is_day[i]),date=new Date(h.time[i]*1000);
     text('weather-chart-value',metricLabel(value));
-    text('weather-chart-detail',`${formatTime(date)} · ${w.label} · ${state.metric==='temperature'?'Feels like '+temp(h.apparent_temperature?.[i]):state.metric==='rain'?rainfall(h.precipitation?.[i])+' forecast':'Gusts '+speed(h.wind_gusts_10m?.[i])+' '+speedUnit()}`);
+    text('weather-chart-detail',`${formatTime(date)} · ${w.label} · ${state.metric==='temperature'?'Feels like '+temp(h.apparent_temperature?.[i]):state.metric==='rain'?rainfall(h.precipitation?.[i])+' forecast':state.metric==='cloud'?'Cloud cover · visibility '+visibilityLabel(h.visibility?.[i]):'Gusts '+speed(h.wind_gusts_10m?.[i])+' '+speedUnit()}`);
+    text('hour-feels',temp(h.apparent_temperature?.[i]));text('hour-rain-amount',rainfall(h.precipitation?.[i]));text('hour-wind',`${speed(h.wind_speed_10m?.[i])} ${speedUnit()}`);text('hour-cloud',finite(h.cloud_cover?.[i])?Math.round(h.cloud_cover[i])+'%':'—');
     ['x1','x2'].forEach(key=>$('weather-crosshair').setAttribute(key,x(index)));$('weather-crosshair').setAttribute('y1',16);$('weather-crosshair').setAttribute('y2',188);
     $('weather-dot').style.display=finite(value)?'':'none';if(finite(value)){$('weather-dot').setAttribute('cx',x(index));$('weather-dot').setAttribute('cy',y(value));}
     $('weather-scrubber').value=index;$('weather-scrubber').setAttribute('aria-valuetext',`${formatTime(date)}, ${metricLabel(value)}, ${w.label}`);
@@ -243,7 +251,7 @@
     if(!state.data)return;
     const h=state.data.hourly;
     $('hourly').innerHTML=hourIndices().map((i,n)=>{
-      const w=weather(h.weather_code[i],!!h.is_day[i]),hour=new Intl.DateTimeFormat('en-US',{timeZone:state.zone,hour:'numeric'}).format(new Date(h.time[i]*1000));
+      const w=weather(h.weather_code[i],!!h.is_day[i]),hour=new Intl.DateTimeFormat('en-US',{timeZone:state.zone,hour:state.time24?'2-digit':'numeric',hourCycle:state.time24?'h23':'h12'}).format(new Date(h.time[i]*1000));
       return `<button class="hour" data-hour="${n}" aria-pressed="${n===state.weatherIndex}"><span>${hour}</span><span role="img" aria-label="${w.label}">${icon(w.icon)}</span><strong class="hour-temp">${temp(h.temperature_2m[i])}</strong><span class="hour-rain">${finite(h.precipitation_probability[i])?h.precipitation_probability[i]+'%':'—'}</span></button>`;
     }).join('');
   }
@@ -257,11 +265,11 @@
       return `<button class="forecast-row" data-day="${i}" aria-pressed="${i===state.day}" aria-label="${day}: ${w.label}, low ${temp(low)}, high ${temp(high)}"><span>${day}</span><span class="forecast-icon">${icon(w.icon)}</span><span class="forecast-low">${temp(low)}</span><span class="range-track" aria-hidden="true"><span class="range-fill" style="left:${left}%;width:${width}%"></span></span><span class="forecast-high">${temp(high)}</span><span class="forecast-rain">${finite(rain)?rain+'%':'—'}</span></button>`;
     }).join('');
   }
-  function setDay(day){if(!state.data)return;state.day=clamp(Number(day),0,6);state.sunMinute=null;state.weatherIndex=0;$('sun-date').value=state.day;renderSun();renderForecast();renderWeatherChart();}
+  function setDay(day){if(!state.data)return;stopPlayback();state.day=clamp(Number(day),0,Math.min(6,state.data.daily.time.length-1));state.sunMinute=null;state.weatherIndex=0;$('sun-date').value=state.day;renderSun();renderForecast();renderWeatherChart();}
   function validateCoordinates(lat,lon){if(!finite(lat)||!finite(lon)||Math.abs(lat)>90||Math.abs(lon)>180)throw new Error('Latitude must be between −90 and 90; longitude between −180 and 180.');}
   async function loadWeather(lat,lon,name='Selected location',refresh=false){
-    validateCoordinates(lat,lon);state.controller?.abort();const controller=new AbortController();state.controller=controller;state.busy=true;
-    $('search-button').disabled=true;text('status','Loading the forecast…');$('status').classList.remove('error');
+    validateCoordinates(lat,lon);stopPlayback();state.controller?.abort();const controller=new AbortController();state.controller=controller;state.busy=true;
+    $('search-button').disabled=true;$('refresh').disabled=true;text('status','Loading the forecast…');$('status').classList.remove('error');
     const timeout=setTimeout(()=>controller.abort(),15000);
     const params=new URLSearchParams({latitude:lat,longitude:lon,timezone:'auto',timeformat:'unixtime',forecast_days:'8',current:'temperature_2m,relative_humidity_2m,apparent_temperature,is_day,weather_code,cloud_cover,wind_speed_10m,wind_direction_10m,wind_gusts_10m,pressure_msl',hourly:'temperature_2m,apparent_temperature,precipitation_probability,precipitation,weather_code,is_day,wind_speed_10m,wind_gusts_10m,dew_point_2m,visibility,cloud_cover',daily:'weather_code,temperature_2m_max,temperature_2m_min,uv_index_max,precipitation_sum,precipitation_probability_max'});
     try{
@@ -269,23 +277,21 @@
       if(!response.ok||data.error)throw new Error(data.reason||'Weather is temporarily unavailable.');
       if(!data.current||!data.hourly?.time?.length||!data.daily?.time?.length)throw new Error('The forecast is incomplete.');
       if(state.controller!==controller)throw new DOMException('Superseded request','AbortError');
-      const day=refresh?state.day:0;state.data=data;state.lat=lat;state.lon=lon;state.name=name;state.zone=data.timezone||'UTC';state.fallback=false;state.day=day;
-      if(!refresh){state.sunMinute=null;state.weatherIndex=0;}
-      $('latitude').value=lat;$('longitude').value=lon;text('location-name',name);text('place',coordinates(lat,lon));
-      $('sun-date').innerHTML=data.daily.time.slice(0,7).map((t,i)=>`<option value="${i}">${i===0?'Today':i===1?'Tomorrow':dayLabel(new Date(t*1000))}</option>`).join('');$('sun-date').value=day;
-      text('timezone',`All times in ${state.zone.replaceAll('_',' ')} · sun times approximate at sea level.`);text('status','');
-      renderConditions();renderSun();renderForecast();renderWeatherChart();renderSaved();updateClock();
-      store('last-place',{lat,lon,name});
+      applyForecast(data,lat,lon,name,refresh);text('status','');
+      store('forecast-cache',{data,lat,lon,name,savedAt:Date.now()});
       return {latitude:lat,longitude:lon,timezone:state.zone,currentTemperatureC:data.current.temperature_2m};
     }catch(error){
       if(state.controller!==controller)throw error;
       $('status').classList.add('error');
+      let cached=false;
+      const cache=restore('forecast-cache',null);
+      if(!state.data&&cache?.data?.current&&cache.data.hourly?.time?.length&&cache.data.daily?.time?.length&&Math.abs(cache.lat-lat)<.0001&&Math.abs(cache.lon-lon)<.0001&&finite(cache.savedAt)&&Date.now()-cache.savedAt<86400000){const normalized=normalizeCachedForecast(cache.data);if(normalized){applyForecast(normalized,lat,lon,name);cached=true;}}
       if(!state.data){
         state.lat=lat;state.lon=lon;state.name=name;state.zone='UTC';state.fallback=true;text('location-name',name);text('place',coordinates(lat,lon));text('condition','Weather unavailable');text('high-low','Sun calculations in UTC');text('feels-summary','');
         text('timezone','Sun times in UTC while the location’s time zone is unavailable.');renderSun();updateClock();
       }
-      text('status',(error.name==='AbortError'?'The weather request timed out.':error.message)+(state.data?' The previous location is still shown.':' Sun times are shown in UTC.')+' Try Go to reload.');throw error;
-    }finally{clearTimeout(timeout);if(state.controller===controller){state.busy=false;$('search-button').disabled=false;}}
+      text('status',cached?`Saved forecast from ${dayLabel(new Date(cache.data.current.time*1000))}, ${formatTime(new Date(cache.data.current.time*1000))}. Refresh to try reconnecting.`:(error.name==='AbortError'?'The weather request timed out.':error.message)+(state.data?(Math.abs(lat-state.lat)<.0001&&Math.abs(lon-state.lon)<.0001?' The last loaded forecast is still shown.':' The previous location is still shown.'):' Sun times are shown in UTC.')+' Refresh to try again.');throw error;
+    }finally{clearTimeout(timeout);if(state.controller===controller){state.busy=false;$('search-button').disabled=false;$('refresh').disabled=false;}}
   }
   function notify(message){text('toast',message);$('toast').hidden=false;clearTimeout(notify.timer);notify.timer=setTimeout(()=>$('toast').hidden=true,3000);}
   function samePlace(place){return Math.abs(place.lat-state.lat)<.0001&&Math.abs(place.lon-state.lon)<.0001;}
@@ -295,7 +301,7 @@
       const chip=document.createElement('div');chip.className='saved-chip';
       const button=document.createElement('button');button.textContent=place.name;button.addEventListener('click',()=>loadWeather(place.lat,place.lon,place.name).catch(()=>{}));
       const remove=document.createElement('button');remove.className='remove-save';remove.textContent='×';remove.setAttribute('aria-label',`Remove ${place.name} from saved locations`);remove.addEventListener('click',()=>{state.saved.splice(index,1);store('places',state.saved);renderSaved();});
-      chip.append(button,remove);container.append(chip);
+      chip.setAttribute('aria-current',String(samePlace(place)));chip.append(button,remove);container.append(chip);
     });
     const saved=state.saved.some(samePlace);$('save-location').setAttribute('aria-pressed',String(saved));$('save-location').setAttribute('aria-label',saved?'Remove saved location':'Save this location');$('save-location').style.color=saved?'var(--gold)':'';
   }
@@ -313,18 +319,93 @@
       data.results.forEach(place=>{const button=document.createElement('button'),name=document.createElement('strong'),detail=document.createElement('span');name.textContent=place.name;detail.textContent=[place.admin1,place.country].filter(Boolean).join(', ');button.append(name,detail);button.addEventListener('click',()=>{container.hidden=true;$('city-search').value='';$('city-search').setAttribute('aria-expanded','false');loadWeather(place.latitude,place.longitude,place.name).catch(()=>{});});container.append(button);});
     }catch(error){if(error.name==='AbortError')return;container.replaceChildren();const message=document.createElement('p');message.textContent='City search is unavailable. You can still use coordinates.';container.append(message);}
   }
+  const reducedMotion=window.matchMedia('(prefers-reduced-motion: reduce)');
+  const visibilityLabel=value=>finite(value)?`${Math.round(state.unit==='f'?value/1609.344:value/1000)} ${state.unit==='f'?'mi':'km'}`:'—';
+  function normalizeCachedForecast(data){
+    const formatter=new Intl.DateTimeFormat('en-CA',{timeZone:data.timezone||'UTC',year:'numeric',month:'2-digit',day:'2-digit'}),today=formatter.format(new Date());
+    const first=data.daily.time.findIndex(t=>formatter.format(new Date(t*1000))===today);
+    if(first<0)return null;
+    const daily=Object.fromEntries(Object.entries(data.daily).map(([key,value])=>[key,Array.isArray(value)?value.slice(first):value]));
+    return {...data,daily};
+  }
+  function applyForecast(data,lat,lon,name,refresh=false){
+    const day=refresh?Math.min(state.day,data.daily.time.length-1,6):0;state.data=data;state.lat=lat;state.lon=lon;state.name=name;state.zone=data.timezone||'UTC';state.fallback=false;state.day=day;
+    if(!refresh){state.sunMinute=null;state.weatherIndex=0;}
+    $('latitude').value=lat;$('longitude').value=lon;text('location-name',name);text('place',coordinates(lat,lon));
+    $('sun-date').innerHTML=data.daily.time.slice(0,7).map((t,i)=>`<option value="${i}">${i===0?'Today':i===1?'Tomorrow':dayLabel(new Date(t*1000))}</option>`).join('');$('sun-date').value=day;
+    text('timezone',`All times in ${state.zone.replaceAll('_',' ')} · sun times approximate at sea level.`);
+    renderConditions();renderSun();renderForecast();renderWeatherChart();renderSaved();updateClock();store('last-place',{lat,lon,name});
+  }
+  function renderSummary(){
+    if(!state.data)return;
+    const h=state.data.hourly,first=h.time.findIndex(t=>t>=Date.now()/1000-3600),indices=h.time.map((_,i)=>i).slice(Math.max(0,first),Math.max(0,first)+12),values=indices.map(i=>h.temperature_2m[i]).filter(finite);
+    const rain=indices.find(i=>finite(h.precipitation_probability[i])&&h.precipitation_probability[i]>=50);
+    const clouds=indices.map(i=>h.cloud_cover[i]).filter(finite);
+    let summary=values.length?`Over the next 12 hours: ${temp(Math.min(...values))} to ${temp(Math.max(...values))}. `:'';
+    summary+=rain!==undefined?`Rain chance reaches ${Math.round(h.precipitation_probability[rain])}% at ${formatTime(new Date(h.time[rain]*1000))}.`:clouds.length&&Math.max(...clouds)<25?'Mostly clear skies, with less than 25% cloud cover.':'Check the hourly forecast for changing conditions.';
+    text('weather-summary',summary);$('weather-summary').hidden=!summary;
+  }
+  function renderLightTimeline(samples){
+    const timeline=$('light-timeline');timeline.replaceChildren();
+    const colors={'Daylight':'#d6b780','Civil twilight':'#ba947d','Nautical twilight':'#8b7d9d','Astronomical twilight':'#626d97','Astronomical night':'#34425e'};
+    let first=0,label=phase(samples[0].sun);
+    const append=end=>{const el=document.createElement('span');el.style.width=(end-first)/288*100+'%';el.style.background=colors[label];const {start,end:dayEnd}=state.chart;const time=i=>new Date(+start+(+dayEnd-+start)*i/288);el.title=`${label}: ${formatTime(time(first))} – ${formatTime(time(end))}`;timeline.append(el);};
+    for(let i=1;i<288;i++){const next=phase(samples[i].sun);if(next!==label){append(i);first=i;label=next;}}
+    append(288);timeline.setAttribute('role','img');timeline.setAttribute('aria-label','24-hour light timeline: '+[...timeline.children].map(el=>el.title).join('; '));
+  }
+  function renderNightOutlook(){
+    const panel=$('night-outlook');if(!state.data){panel.hidden=true;return;}
+    panel.hidden=false;const {start,end}=bounds(),times=sunForDay(start),next=sunForDay(end),h=state.data.hourly;
+    const from=validDate(times.night)?+times.night:+start,to=validDate(times.night)&&validDate(next.nightEnd)?+next.nightEnd:+end;
+    const indices=h.time.flatMap((time,i)=>time*1000>=from&&time*1000<to&&SunCalc.getPosition(new Date(time*1000),state.lat,state.lon).altitude< -18*Math.PI/180?[i]:[]);
+    const values=indices.map(i=>h.cloud_cover[i]).filter(finite);const container=$('night-outlook-hours');container.replaceChildren();
+    if(!indices.length){text('night-outlook-summary','No hourly forecast falls within astronomical darkness on this date.');return;}
+    text('night-outlook-summary',`${formatTime(new Date(from))} – ${formatTime(new Date(to))}${values.length?' · '+Math.round(Math.min(...values))+'–'+Math.round(Math.max(...values))+'% cloud cover':''}`);
+    indices.forEach(i=>{const hour=document.createElement('div');hour.className='night-hour'+(finite(h.cloud_cover[i])&&h.cloud_cover[i]<25?' is-clear':'');const time=document.createElement('time');time.textContent=formatTime(new Date(h.time[i]*1000));const cover=document.createElement('strong');cover.textContent=finite(h.cloud_cover[i])?Math.round(h.cloud_cover[i])+'%':'—';const label=document.createElement('span');label.textContent='cloud cover';hour.append(time,cover,label);container.append(hour);});
+  }
+  function applyMoonVisibility(){
+    ['moon-path','moon-dot'].forEach(id=>$(id).style.display=state.showMoon?'':'none');
+    $('moon-toggle').setAttribute('aria-pressed',String(state.showMoon));$('settings-moon').checked=state.showMoon;
+  }
+  function applySkyPreview(date){
+    const altitude=SunCalc.getPosition(date,state.lat,state.lon).altitude*180/Math.PI;
+    let code=0;
+    if(state.data){const h=state.data.hourly,index=h.time.findLastIndex(t=>t*1000<=+date);code=h.weather_code[index]??0;}
+    document.body.dataset.sky=altitude< -6?'night':altitude<6?'twilight':[51,53,55,56,57,61,63,65,66,67,80,81,82,95,96,99].includes(code)?'rain':code===3||code===45||code===48?'cloud':'day';
+    text('sky-preview-label',`Sky preview · ${dayLabel(date)}, ${formatTime(date)}`);
+  }
+  function setPreview(enabled){
+    state.preview=enabled;document.body.dataset.preview=String(enabled);$('sky-preview').checked=enabled;$('sky-preview-badge').hidden=!enabled;
+    if(enabled)scrubSun(state.sunMinute);else updateClock();
+  }
+  function stopPlayback(){
+    cancelAnimationFrame(stopPlayback.frame);state.playing=false;$('sun-play').setAttribute('aria-pressed','false');
+    $('sun-play').innerHTML=icon('play')+`<span>${reducedMotion.matches?'Step 1h':'Play day'}</span>`;
+  }
+  function playDay(){
+    if(!state.chart)return;
+    if(state.playing){stopPlayback();return;}
+    if(reducedMotion.matches){scrubSun(Math.min(1439,Number($('sun-scrubber').value)+60));return;}
+    state.playing=true;$('sun-play').setAttribute('aria-pressed','true');$('sun-play').innerHTML=icon('pause')+'<span>Pause</span>';
+    const first=state.sunMinute===null||state.sunMinute>=1439?0:state.sunMinute,began=performance.now();let last=0;
+    const frame=time=>{if(!state.playing)return;const minute=Math.min(1439,first+(time-began)/1000*60);if(time-last>70||minute>=1439){scrubSun(minute);last=time;}if(minute>=1439){stopPlayback();return;}stopPlayback.frame=requestAnimationFrame(frame);};
+    stopPlayback.frame=requestAnimationFrame(frame);
+  }
+  function rerenderDisplay(){
+    stopPlayback();renderConditions();renderSun();renderForecast();renderWeatherChart();updateClock();
+  }
   function attachGraph(svgId,callback){
     const svg=$(svgId);let dragging=false;
     const move=event=>{const rect=svg.getBoundingClientRect();const fraction=clamp(((event.clientX-rect.left)/rect.width*900-36)/828,0,1);callback(fraction);};
-    svg.addEventListener('pointerdown',event=>{dragging=true;svg.setPointerCapture(event.pointerId);move(event);});
-    svg.addEventListener('pointermove',event=>{if(event.pointerType==='mouse'||dragging)move(event);});
+    svg.addEventListener('pointerdown',event=>{if(svgId==='sun-arc')stopPlayback();dragging=true;svg.setPointerCapture(event.pointerId);move(event);});
+    svg.addEventListener('pointermove',event=>{if((event.pointerType==='mouse'||dragging)&&!state.playing)move(event);});
     svg.addEventListener('pointerup',()=>dragging=false);svg.addEventListener('pointercancel',()=>dragging=false);
   }
   document.querySelectorAll('[data-icon]').forEach(el=>el.innerHTML=icon(el.dataset.icon));
   $('location-form').addEventListener('submit',event=>{event.preventDefault();const lat=Number($('latitude').value),lon=Number($('longitude').value);loadWeather(lat,lon,Math.abs(lat-state.lat)<.0001&&Math.abs(lon-state.lon)<.0001?state.name:'Selected location').catch(()=>{});});
   $('sun-date').addEventListener('change',()=>setDay($('sun-date').value));$('day-prev').addEventListener('click',()=>setDay(state.day-1));$('day-next').addEventListener('click',()=>setDay(state.day+1));
-  $('sun-scrubber').addEventListener('input',()=>scrubSun(Number($('sun-scrubber').value)));$('sun-live').addEventListener('click',()=>scrubSun(null));
-  document.querySelectorAll('[data-sun-event]').forEach(button=>button.addEventListener('click',()=>{const {start,end,times}=state.chart,time=times[button.dataset.sunEvent];if(validDate(time))scrubSun((+time-+start)/(+end-+start)*1439);}));
+  $('sun-scrubber').addEventListener('input',()=>{stopPlayback();scrubSun(Number($('sun-scrubber').value));});$('sun-live').addEventListener('click',()=>{stopPlayback();scrubSun(null);});
+  document.querySelectorAll('[data-sun-event]').forEach(button=>button.addEventListener('click',()=>{stopPlayback();const {start,end,times}=state.chart,time=times[button.dataset.sunEvent];if(validDate(time))scrubSun((+time-+start)/(+end-+start)*1439);}));
   $('weather-scrubber').addEventListener('input',()=>scrubWeather(Number($('weather-scrubber').value)));
   $('hourly').addEventListener('click',event=>{const button=event.target.closest('[data-hour]');if(button)scrubWeather(Number(button.dataset.hour));});
   $('forecast').addEventListener('click',event=>{const button=event.target.closest('[data-day]');if(button)setDay(button.dataset.day);});
@@ -338,6 +419,23 @@
   $('share').addEventListener('click',async()=>{const url=new URL(location.href);url.search='';url.searchParams.set('lat',state.lat);url.searchParams.set('lon',state.lon);url.searchParams.set('name',state.name);try{await navigator.clipboard.writeText(url.href);notify('Location link copied.');}catch{window.prompt('Copy this location link:',url.href);}});
   $('locate').addEventListener('click',()=>{if(!navigator.geolocation){notify('Location is unavailable. Use coordinates instead.');return;}$('locate').disabled=true;text('status','Waiting for location permission…');navigator.geolocation.getCurrentPosition(position=>{$('locate').disabled=false;loadWeather(position.coords.latitude,position.coords.longitude,'My location').catch(()=>{});},()=>{$('locate').disabled=false;text('status','Location could not be shared. Search a city or enter coordinates.');},{timeout:15000,maximumAge:300000});});
   attachGraph('sun-arc',fraction=>scrubSun(fraction*1439));attachGraph('weather-graph',fraction=>{if(state.weatherChart)scrubWeather(fraction*(state.weatherChart.indices.length-1));});
+  $('sun-play').addEventListener('click',playDay);
+  $('sky-preview').addEventListener('change',()=>setPreview($('sky-preview').checked));
+  $('preview-exit').addEventListener('click',()=>setPreview(false));
+  $('moon-toggle').addEventListener('click',()=>{state.showMoon=!state.showMoon;store('moon',state.showMoon);stopPlayback();renderSun();});
+  $('settings-moon').addEventListener('change',()=>{state.showMoon=$('settings-moon').checked;store('moon',state.showMoon);stopPlayback();renderSun();});
+  $('settings-open').addEventListener('click',()=>$('settings-dialog').showModal());
+  $('settings-close').addEventListener('click',()=>$('settings-dialog').close());
+  $('settings-dialog').addEventListener('click',event=>{if(event.target===$('settings-dialog')){const r=event.target.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)event.target.close();}});
+  $('time-format').value=state.time24?'24':'12';
+  $('time-format').addEventListener('change',()=>{state.time24=$('time-format').value==='24';store('clock',state.time24?24:12);rerenderDisplay();});
+  $('refresh').addEventListener('click',()=>loadWeather(state.lat,state.lon,state.name,true).catch(()=>{}));
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)stopPlayback();});
+  window.addEventListener('online',()=>{if(!state.busy)loadWeather(state.lat,state.lon,state.name,true).catch(()=>{});});
+  reducedMotion.addEventListener('change',stopPlayback);
+  const observer=new IntersectionObserver(entries=>{const visible=entries.filter(e=>e.isIntersecting).sort((a,b)=>b.intersectionRatio-a.intersectionRatio);if(visible.length)document.querySelectorAll('.mobile-nav a').forEach(a=>a.setAttribute('aria-current',String(a.hash==='#'+visible[0].target.id)));},{rootMargin:'-10% 0px -55% 0px',threshold:[0,.25,.5,1]});
+  ['conditions','daylight-section','forecast-section'].forEach(id=>observer.observe($(id)));
+  stopPlayback();applyMoonVisibility();
   renderSaved();
   const params=new URLSearchParams(location.search),last=restore('last-place',null);
   if(params.has('lat')&&params.has('lon')){const lat=Number(params.get('lat')),lon=Number(params.get('lon'));try{validateCoordinates(lat,lon);state.lat=lat;state.lon=lon;state.name=(params.get('name')||'Shared location').slice(0,80);}catch{notify('The shared coordinates are invalid.');}}
@@ -347,7 +445,7 @@
     try{Promise.resolve(document.modelContext.registerTool({name:'show_weather_at_coordinates',title:'Show weather at coordinates',description:'Load live weather and sun times for coordinates, updating the dashboard.',inputSchema:{type:'object',properties:{latitude:{type:'number',minimum:-90,maximum:90},longitude:{type:'number',minimum:-180,maximum:180}},required:['latitude','longitude'],additionalProperties:false},annotations:{readOnlyHint:false,untrustedContentHint:true},execute:input=>loadWeather(input.latitude,input.longitude)},{signal:lifecycle.signal})).catch(()=>{});}catch{}
     window.addEventListener('pagehide',()=>lifecycle.abort(),{once:true});
   }
-  window.Luma={state,loadWeather,sunForDay,setDay,scrubSun,scrubWeather,searchCities,renderSun};
+  window.Luma={state,loadWeather,sunForDay,setDay,scrubSun,scrubWeather,searchCities,renderSun,stopPlayback};
   loadWeather(state.lat,state.lon,state.name).catch(()=>{});
   setInterval(()=>{if(!state.busy){updateClock();if(state.sunMinute===null)scrubSun(null);}},60000);
   setInterval(()=>{if(!state.busy&&state.data)loadWeather(state.lat,state.lon,state.name,true).catch(()=>{});},900000);
