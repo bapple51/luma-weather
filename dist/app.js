@@ -117,7 +117,7 @@
     for(let i=0;i<=4;i++)grid.append(svgElement('line',{x1:36+828*i/4,x2:36+828*i/4,y1:16,y2:268}));
     axisTicks('sun-axis',start,end);
     document.querySelectorAll('[data-sun-event]').forEach(button=>{const event=times[button.dataset.sunEvent];button.disabled=!validDate(event)||+event<+start||+event>+end;});
-    renderMoon();scrubSun(state.sunMinute); 
+    renderMoon();scrubSun(state.sunMinute);
   }
   function scrubSun(minute){
     if(!state.chart)return;
